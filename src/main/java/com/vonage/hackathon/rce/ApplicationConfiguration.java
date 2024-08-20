@@ -24,6 +24,9 @@ public class ApplicationConfiguration {
 
 	//final HttpClient javaHttpClient = HttpClient.newHttpClient();
 	final VonageClient vonageClient;
+	final URI hostUrl;
+	final String brand = "Vonage Hackathon Demo";
+	int port;
 
 	@Bean
 	public WebServerFactoryCustomizer<ConfigurableWebServerFactory> webServerFactoryCustomizer() {
@@ -65,6 +68,9 @@ public class ApplicationConfiguration {
 		var apiSecret = getEnvWithAlt("VONAGE_API_SECRET", "VCR_API_ACCOUNT_SECRET");
 		var applicationId = getEnvWithAlt("VONAGE_APPLICATION_ID", "VCR_API_APPLICATION_ID");
 		var privateKey = getEnvWithAlt("VONAGE_PRIVATE_KEY_PATH", "VCR_PRIVATE_KEY");
+		hostUrl = URI.create(getEnv("VONAGE_HACKATHON_SERVER_URL").map(
+				self -> port > 80 ? self + ":" + port : self
+		).orElseThrow());
 
 		if (credentials != null) {
 			if (credentials.apiKey != null && !credentials.apiKey.isEmpty()) {
