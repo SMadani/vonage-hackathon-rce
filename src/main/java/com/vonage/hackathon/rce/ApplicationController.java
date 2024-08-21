@@ -1,5 +1,6 @@
 package com.vonage.hackathon.rce;
 
+import com.vonage.client.auth.camara.NetworkAuthResponseException;
 import com.vonage.client.messages.InboundMessage;
 import com.vonage.client.messages.MessageStatus;
 import com.vonage.client.messages.sms.SmsTextRequest;
@@ -13,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.URI;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -22,9 +23,10 @@ import java.util.logging.Logger;
 @Controller
 public final class ApplicationController {
 	private final Logger logger = Logger.getLogger("controller");
+	private static final String COMPLETE_REGISTRATION_ENDPOINT = "/register/complete";
 
 	private final Map<UUID, String> pendingRegistrations = new LinkedHashMap<>(2);
-	String verifiedNumber;
+	private final Map<String, Instant> registeredNumbers = new LinkedHashMap<>(2);
 
 	@Autowired
 	private ApplicationConfiguration configuration;
@@ -33,7 +35,7 @@ public final class ApplicationController {
 		return "OK";
 	}
 
-	private void sendMessage(String from, String text) {
+	private void sendMessage(String from, String to, String text) {
 		int threshold = 1000, length = text.length();
 		if (length > threshold) {
 			logger.info("Long message ("+length+" characters). Sending in parts...");
@@ -44,7 +46,7 @@ public final class ApplicationController {
 		}
 
 		var client = configuration.vonageClient.getMessagesClient();
-		var builder = SmsTextRequest.builder().from(from).to(verifiedNumber);
+		var builder = SmsTextRequest.builder().from(from).to(to);
 		for (var part : parts) {
 			logger.info("Message sent: " + client.sendMessage(builder.text(part).build()).getMessageUuid());
 		}
@@ -63,31 +65,79 @@ public final class ApplicationController {
 		return standardWebhookResponse();
 	}
 
-	@ResponseBody
-	@GetMapping("/register")
-	public URI beginRegistration(@RequestParam String number) {
-		if (configuration.vonageClient.getSimSwapClient().checkSimSwap(number)) {
-			logger.warning("SIM Swap detected for number: "+number);
+	private boolean checkRegistration(InboundMessage inbound) {
+		var from = inbound.getFrom();
+		if (registeredNumbers.containsKey(from)) {
+			logger.info("Number '"+from+"' is verified.");
+			return true;
 		}
-		var redirectUrl = configuration.hostUrl.resolve("/register/complete").toString();
+		logger.info("Unknown number '"+from+"'. Beginning registration...");
+
+		try {
+			if (configuration.vonageClient.getSimSwapClient().checkSimSwap(from)) {
+				logger.warning("SIM Swap detected for number: " + from);
+			}
+		}
+		catch (NetworkAuthResponseException ex) {
+			logger.warning(ex.getMessage());
+		}
+
+		var redirectUrl = configuration.hostUrl.resolve(COMPLETE_REGISTRATION_ENDPOINT).toString();
 		var request = configuration.vonageClient.getVerify2Client().sendVerification(
 				VerificationRequest.builder()
-						.addWorkflow(new SilentAuthWorkflow(number, true, redirectUrl))
+						.addWorkflow(new SilentAuthWorkflow(from, true, redirectUrl))
 						.brand(configuration.brand).build()
 		);
+		pendingRegistrations.put(request.getRequestId(), from);
+		sendMessage(inbound.getTo(), from,
+				"Please verify your number using mobile data: "+request.getCheckUrl()
+		);
 		logger.info("Verification sent: "+request.getRequestId());
-		pendingRegistrations.put(request.getRequestId(), number);
-		return request.getCheckUrl();
+		return false;
 	}
 
 	@ResponseBody
-	@PostMapping("/webhooks/verify/complete")
-	public String completeRegistration(@RequestBody VerificationCallback callback) {
-		logger.info("Received verification status update: "+callback.toJson());
-		if (callback.getStatus() == VerificationStatus.COMPLETED) {
-			logger.info("Registered number: " + (verifiedNumber = pendingRegistrations.get(callback.getRequestId())));
-			sendMessage(configuration.brand, "Registration successful!");
+	@GetMapping(COMPLETE_REGISTRATION_ENDPOINT)
+	public String completeRegistrationExternal() {
+		return """
+			<!DOCTYPE html>
+			<html lang="en">
+			<head>
+				<meta charset="UTF-8">
+				<title>Convert Fragment</title>
+				<script type="text/javascript">
+					window.onload = function() {
+						if (window.location.hash) {
+							window.location.replace(window.location.href.replace('#', '/final?'));
+						}
+					};
+				</script>
+			</head>
+			<body>
+			<p>Redirecting...</p>
+			</body>
+			</html>
+		""";
+	}
+
+	@ResponseBody
+	@GetMapping(COMPLETE_REGISTRATION_ENDPOINT + "/final")
+	public String completeRegistrationInternal(@RequestParam("request_id") UUID requestId, @RequestParam String code) {
+		var check = configuration.vonageClient.getVerify2Client().checkVerificationCode(requestId, code);
+		var status = check.getStatus();
+		if (status == VerificationStatus.COMPLETED) {
+			var verifiedNumber = pendingRegistrations.remove(requestId);
+			registeredNumbers.put(verifiedNumber, Instant.now());
+			logger.info("Registered number: " + verifiedNumber);
+			return "Registration successful!";
 		}
+		else return "Registration failed. Status: " + status;
+	}
+
+	@ResponseBody
+	@PostMapping("/webhooks/verify/status")
+	public String verificationStatus(@RequestBody VerificationCallback callback) {
+		logger.info("Received verification status: "+callback.toJson());
 		return standardWebhookResponse();
 	}
 
@@ -96,31 +146,33 @@ public final class ApplicationController {
 	@PostMapping("/webhooks/messages/inbound")
 	public String inboundMessage(@RequestBody InboundMessage inbound) throws IOException {
 		logger.info("Received inbound message: "+inbound.toJson());
-		var command = inbound.getText();
-		if (command != null && !command.isBlank()) {
-			logger.info("Executing command: "+command);
-			var process = new ProcessBuilder().redirectErrorStream(true)
-					.command("sh", "-cr", command).start();
+		if (checkRegistration(inbound)) {
+			var command = inbound.getText();
+			if (command != null && !command.isBlank()) {
+				logger.info("Executing command: " + command);
+				var process = new ProcessBuilder().redirectErrorStream(true)
+						.command("sh", "-cr", command).start();
 
-			String parsedOutput;
-			try (var stream = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-				var output = new StringBuilder();
-				for (String line; (line = stream.readLine()) != null; output.append(line).append("\n"));
-				process.waitFor();
-				parsedOutput = output.toString().trim();
-				logger.info("Process output: " + parsedOutput);
-			}
-			catch (InterruptedException ex) {
-				parsedOutput = "Process interrupted: "+ex.getMessage();
-				logger.warning(parsedOutput);
-			}
+				String parsedOutput;
+				try (var stream = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+					var output = new StringBuilder();
+					for (String line; (line = stream.readLine()) != null; output.append(line).append("\n")) ;
+					process.waitFor();
+					parsedOutput = output.toString().trim();
+					logger.info("Process output: " + parsedOutput);
+				}
+				catch (InterruptedException ex) {
+					parsedOutput = "Process interrupted: " + ex.getMessage();
+					logger.warning(parsedOutput);
+				}
 
-			sendMessage(inbound.getTo(), parsedOutput.isBlank() ?
-					"Exit value "+process.exitValue() : parsedOutput
-			);
-		}
-		else {
-			logger.warning("No command received.");
+				sendMessage(inbound.getTo(), inbound.getFrom(), parsedOutput.isBlank() ?
+						"Exit value " + process.exitValue() : parsedOutput
+				);
+			}
+			else {
+				logger.warning("No command received.");
+			}
 		}
 		return standardWebhookResponse();
 	}
