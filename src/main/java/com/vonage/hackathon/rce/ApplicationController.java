@@ -15,6 +15,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -25,8 +26,10 @@ public final class ApplicationController {
 	private final Logger logger = Logger.getLogger("controller");
 	private static final String COMPLETE_REGISTRATION_ENDPOINT = "/register/complete";
 
-	private final Map<UUID, String> pendingRegistrations = new LinkedHashMap<>(2);
-	private final Map<String, Instant> registeredNumbers = new LinkedHashMap<>(2);
+	private final Map<UUID, String> pendingRegistrationRequests = new LinkedHashMap<>(2);
+	private final Map<String, Instant>
+			pendingRegistrationTimestamps = new LinkedHashMap<>(2),
+			registeredNumbers = new LinkedHashMap<>(2);
 
 	@Autowired
 	private ApplicationConfiguration configuration;
@@ -35,7 +38,7 @@ public final class ApplicationController {
 		return "OK";
 	}
 
-	private void sendMessage(String from, String to, String text) {
+	private synchronized void sendMessage(String from, String to, String text) {
 		int threshold = 1000, length = text.length();
 		if (length > threshold) {
 			logger.info("Long message ("+length+" characters). Sending in parts...");
@@ -65,13 +68,31 @@ public final class ApplicationController {
 		return standardWebhookResponse();
 	}
 
-	private boolean checkRegistration(InboundMessage inbound) {
+	private synchronized boolean checkRegistration(InboundMessage inbound) {
 		var from = inbound.getFrom();
 		if (registeredNumbers.containsKey(from)) {
 			logger.info("Number '"+from+"' is verified.");
 			return true;
 		}
-		logger.info("Unknown number '"+from+"'. Beginning registration...");
+		var pendingTimestamp = pendingRegistrationTimestamps.get(from);
+
+		if (pendingTimestamp != null) {
+			logger.info("Number '"+from+"' is pending registration.");
+			var nextAttemptTime = pendingTimestamp.plus(3, ChronoUnit.MINUTES);
+			if (pendingTimestamp.isAfter(nextAttemptTime)) {
+				logger.info("Resending verification...");
+				pendingRegistrationTimestamps.remove(from);
+			}
+			else {
+				logger.info("Not enough time since last registration attempt.");
+				var seconds = Instant.now().until(nextAttemptTime, ChronoUnit.SECONDS);
+				sendMessage(inbound.getTo(), from, "Please wait "+seconds+" seconds before trying again.");
+				return false;
+			}
+		}
+		else {
+			logger.info("Unknown number '" + from + "'. Beginning registration...");
+		}
 
 		try {
 			if (configuration.vonageClient.getSimSwapClient().checkSimSwap(from)) {
@@ -88,7 +109,8 @@ public final class ApplicationController {
 						.addWorkflow(new SilentAuthWorkflow(from, true, redirectUrl))
 						.brand(configuration.brand).build()
 		);
-		pendingRegistrations.put(request.getRequestId(), from);
+		pendingRegistrationTimestamps.put(from, Instant.now());
+		pendingRegistrationRequests.put(request.getRequestId(), from);
 		sendMessage(inbound.getTo(), from,
 				"Please verify your number using mobile data: "+request.getCheckUrl()
 		);
@@ -126,7 +148,8 @@ public final class ApplicationController {
 		var check = configuration.vonageClient.getVerify2Client().checkVerificationCode(requestId, code);
 		var status = check.getStatus();
 		if (status == VerificationStatus.COMPLETED) {
-			var verifiedNumber = pendingRegistrations.remove(requestId);
+			var verifiedNumber = pendingRegistrationRequests.remove(requestId);
+			pendingRegistrationTimestamps.remove(verifiedNumber);
 			registeredNumbers.put(verifiedNumber, Instant.now());
 			logger.info("Registered number: " + verifiedNumber);
 			return "Registration successful!";
@@ -156,7 +179,7 @@ public final class ApplicationController {
 				String parsedOutput;
 				try (var stream = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
 					var output = new StringBuilder();
-					for (String line; (line = stream.readLine()) != null; output.append(line).append("\n")) ;
+					for (String line; (line = stream.readLine()) != null; output.append(line).append("\n"));
 					process.waitFor();
 					parsedOutput = output.toString().trim();
 					logger.info("Process output: " + parsedOutput);
