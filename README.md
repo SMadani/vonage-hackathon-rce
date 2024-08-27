@@ -15,6 +15,8 @@ You will need Java Development Kit 21 or later to run this demo.
 Installation instructions can be found [here for Temurin JDKs](https://adoptium.net/en-GB/installation/) or
 [here for Oracle JDK 21](https://docs.oracle.com/en/java/javase/21/install/overview-jdk-installation.html).
 
+You will also need to expose your local server to the internet using a service like [ngrok](https://ngrok.com/).
+
 ## Configuration
 All the parameters required to run the demo can be provided through environment variables. These are as follows:
 
@@ -23,6 +25,7 @@ All the parameters required to run the demo can be provided through environment 
 - `VONAGE_APPLICATION_ID`: Vonage application UUID.
 - `VONAGE_PRIVATE_KEY_PATH`: Absolute path to the private key associated with your Vonage application.
 - `TO_NUMBER`: Client phone number that is allowed to run commands.
+- `VONAGE_HACKATHON_SERVER_URL`: External URL of the server. Typically, this would be an `ngrok.app` URL.
 - `VCR_PORT`: Port to run the demo on. By default, this is `8080`.
 
 ## Build & Run
@@ -31,6 +34,6 @@ and run it through the IDE, where the entry point is the `Application` class
 (src/main/java/com/vonage/hackathon/rce/Application.java).
 
 To run the demo standalone from the command line, do `mvn install spring-boot:run`.
-Then open a browser to [localhost:8080](http://localhost:8080) to use the application.
+
 
 

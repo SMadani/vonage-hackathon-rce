@@ -1,6 +1,11 @@
 package com.vonage.hackathon.rce;
 
 import com.vonage.client.VonageClient;
+import com.vonage.client.application.Application;
+import com.vonage.client.application.capabilities.Messages;
+import com.vonage.client.application.capabilities.Verify;
+import com.vonage.client.common.HttpMethod;
+import com.vonage.client.common.Webhook;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.web.server.ConfigurableWebServerFactory;
@@ -20,9 +25,16 @@ import java.util.Set;
 import java.util.UUID;
 
 @ConfigurationProperties(prefix = "vonage")
-public class ApplicationConfiguration { ;
+public class ApplicationConfiguration {
+	static final String
+			INBOUND_MESSAGE_ENDPOINT = "/webhooks/messages/inbound",
+			MESSAGE_STATUS_ENDPOINT = "/webhooks/messages/status",
+			VERIFY_STATUS_ENDPOINT = "/webhooks/verify/status",
+			COMPLETE_REGISTRATION_ENDPOINT = "/register/complete";
+
 	final VonageClient vonageClient;
 	final URI hostUrl;
+	final UUID applicationId;
 	final String brand = "Hackathon";
 	final Set<String> permittedNumbers;
 	int port;
@@ -72,6 +84,9 @@ public class ApplicationConfiguration { ;
 		hostUrl = URI.create(getEnv("VONAGE_HACKATHON_SERVER_URL").map(
 				self -> port > 80 ? self + ":" + port : self
 		).orElseThrow(() -> new IllegalStateException("VONAGE_HACKATHON_SERVER_URL not set.")));
+		permittedNumbers = Set.of(getEnv("TO_NUMBER").orElseThrow(
+				() -> new IllegalStateException("TO_NUMBER not set."))
+		);
 
 		if (credentials != null) {
 			if (credentials.apiKey != null && !credentials.apiKey.isEmpty()) {
@@ -88,10 +103,13 @@ public class ApplicationConfiguration { ;
 			}
 		}
 
-		if (privateKey != null && applicationId != null) {
+		if (applicationId == null) {
+			throw new IllegalStateException("Application ID not set.");
+		}
+		this.applicationId = UUID.fromString(applicationId);
+
+		if (privateKey != null) {
 			try {
-				var uuid = UUID.fromString(applicationId);
-				assert uuid.version() > 0;
 				if (privateKey.startsWith("-----BEGIN PRIVATE KEY-----")) {
 					clientBuilder.privateKeyContents(privateKey.getBytes());
 				}
@@ -112,8 +130,5 @@ public class ApplicationConfiguration { ;
 		}
 
 		vonageClient = clientBuilder.build();
-		permittedNumbers = Set.of(getEnv("TO_NUMBER").orElseThrow(
-				() -> new IllegalStateException("TO_NUMBER not set."))
-		);
 	}
 }

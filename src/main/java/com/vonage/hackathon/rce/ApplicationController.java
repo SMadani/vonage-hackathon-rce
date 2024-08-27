@@ -1,5 +1,7 @@
 package com.vonage.hackathon.rce;
 
+import com.vonage.client.application.capabilities.Voice;
+import static com.vonage.hackathon.rce.ApplicationConfiguration.*;
 import com.vonage.client.auth.camara.NetworkAuthResponseException;
 import com.vonage.client.messages.*;
 import com.vonage.client.messages.messenger.MessengerTextRequest;
@@ -20,7 +22,6 @@ import java.util.logging.Logger;
 @Controller
 public final class ApplicationController {
 	private final Logger logger = Logger.getLogger("controller");
-	private static final String COMPLETE_REGISTRATION_ENDPOINT = "/register/complete";
 
 	private final int INITIAL_SIZE = 2;
 	private final Set<String> blockedNumbers = new LinkedHashSet<>(INITIAL_SIZE);
@@ -79,7 +80,7 @@ public final class ApplicationController {
 	}
 
 	@ResponseBody
-	@PostMapping("/webhooks/messages/status")
+	@PostMapping(MESSAGE_STATUS_ENDPOINT)
 	public String messageStatus(@RequestBody MessageStatus status) {
 		logger.info("Received message status: "+status.toJson());
 		return standardWebhookResponse();
@@ -171,26 +172,46 @@ public final class ApplicationController {
 
 	@ResponseBody
 	@GetMapping(COMPLETE_REGISTRATION_ENDPOINT + "/final")
-	public String completeRegistrationInternal(@RequestParam("request_id") UUID requestId, @RequestParam String code) {
+	public String completeRegistrationInternal(
+			@RequestParam("request_id") UUID requestId,
+			@RequestParam(required = false) String code,
+			@RequestParam(value = "error_description", required = false) String errorText
+	) {
 		var v2c = configuration.vonageClient.getVerify2Client();
-		var check = v2c.checkVerificationCode(requestId, code);
-		var status = check.getStatus();
-		if (status == VerificationStatus.COMPLETED) {
-			var verifiedNumber = pendingRegistrationRequests.remove(requestId);
-			pendingRegistrationTimestamps.remove(verifiedNumber);
-			registeredNumbers.put(verifiedNumber, Instant.now());
-			logger.info("Registered number: " + verifiedNumber);
-			return "<h1>Registration successful!</h1>";
+		String reason = null;
+		if (code != null) {
+			var check = v2c.checkVerificationCode(requestId, code);
+			var status = check.getStatus();
+			if (status == VerificationStatus.COMPLETED) {
+				var verifiedNumber = pendingRegistrationRequests.remove(requestId);
+				pendingRegistrationTimestamps.remove(verifiedNumber);
+				registeredNumbers.put(verifiedNumber, Instant.now());
+				logger.info("Registered number: " + verifiedNumber);
+				return "<h1>Registration successful!</h1>";
+			}
+			else {
+				reason = status.toString();
+			}
 		}
 		else {
-			logger.info("Silent Auth "+status+" for request '"+requestId+"'. Moving to next workflow...");
-			v2c.nextWorkflow(requestId);
-			return "Registration failed ("+status+"). Use Voice instead.";
+			reason = errorText;
 		}
+		logger.info("Silent Auth failed for request '"+requestId+"' with reason: "+reason);
+		logger.info("Moving to next workflow...");
+		var message = "Registration failed ("+reason+").";
+
+		try {
+			v2c.nextWorkflow(requestId);
+		}
+		catch (VerifyResponseException ex) {
+			logger.warning("Failed to move to next workflow: "+ex.getMessage());
+			return message;
+		}
+		return message + " Expect a phone call shortly...";
 	}
 
 	@ResponseBody
-	@PostMapping("/webhooks/verify/status")
+	@PostMapping(VERIFY_STATUS_ENDPOINT)
 	public String verificationStatus(@RequestBody VerificationCallback callback) {
 		logger.info("Received verification status: "+callback.toJson());
 		return standardWebhookResponse();
@@ -198,7 +219,7 @@ public final class ApplicationController {
 
 	@SuppressWarnings("StatementWithEmptyBody")
     @ResponseBody
-	@PostMapping("/webhooks/messages/inbound")
+	@PostMapping(INBOUND_MESSAGE_ENDPOINT)
 	public String inboundMessage(@RequestBody InboundMessage inbound) throws IOException {
 		logger.info("Received inbound message: "+inbound.toJson());
 		if (checkRegistration(inbound)) {
@@ -214,7 +235,7 @@ public final class ApplicationController {
 					for (String line; (line = stream.readLine()) != null; output.append(line).append("\n"));
 					process.waitFor();
 					parsedOutput = output.toString().trim();
-					logger.info("Process output: " + parsedOutput);
+					logger.info(parsedOutput);
 				}
 				catch (InterruptedException ex) {
 					parsedOutput = "Process interrupted: " + ex.getMessage();
