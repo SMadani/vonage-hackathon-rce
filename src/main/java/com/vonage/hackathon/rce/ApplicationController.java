@@ -2,7 +2,10 @@ package com.vonage.hackathon.rce;
 
 import com.vonage.client.auth.camara.NetworkAuthResponseException;
 import com.vonage.client.messages.*;
+import com.vonage.client.messages.messenger.MessengerTextRequest;
 import com.vonage.client.messages.sms.SmsTextRequest;
+import com.vonage.client.messages.viber.ViberTextRequest;
+import com.vonage.client.messages.whatsapp.WhatsappTextRequest;
 import com.vonage.client.verify2.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -31,8 +34,8 @@ public final class ApplicationController {
 		return "OK";
 	}
 
-	private synchronized void sendMessage(String from, String to, String text) {
-		int threshold = 160, length = text.length();
+	private synchronized void sendMessage(InboundMessage inbound, String text) {
+		int threshold = 1000, length = text.length();
 		if (length > threshold) {
 			logger.info("Long message ("+length+" characters). Sending in parts...");
 		}
@@ -41,10 +44,29 @@ public final class ApplicationController {
 			parts[i] = text.substring(i * threshold, Math.min(length, (i + 1) * threshold));
 		}
 
-		var client = configuration.vonageClient.getMessagesClient();
-		var builder = SmsTextRequest.builder().from(from).to(to);
-		for (var part : parts) {
-			logger.info("Message sent: " + client.sendMessage(builder.text(part).build()).getMessageUuid());
+		var client = configuration.vonageClient.getMessagesClient().useSandboxEndpoint();
+		MessageRequest.Builder<?, ?> builder = (
+			switch (inbound.getChannel()) {
+				case WHATSAPP -> WhatsappTextRequest.builder();
+				case VIBER -> ViberTextRequest.builder();
+				case MESSENGER -> MessengerTextRequest.builder();
+				case SMS, MMS -> {
+					client.useRegularEndpoint();
+					yield SmsTextRequest.builder();
+				}
+			}
+		).from(inbound.getTo()).to(inbound.getFrom());
+
+		try {
+			var textMethod = builder.getClass().getMethod("text", String.class);
+			for (var part : parts) {
+				textMethod.invoke(builder, part);
+				logger.info("Message sent: " + client.sendMessage(builder.build()).getMessageUuid());
+			}
+		}
+		catch (ReflectiveOperationException ex) {
+			logger.warning("Could not send message: " + ex.getMessage());
+			throw new IllegalStateException(ex);
 		}
 	}
 
@@ -79,7 +101,7 @@ public final class ApplicationController {
 			else {
 				logger.info("Not enough time since last registration attempt.");
 				var seconds = Instant.now().until(nextAttemptTime, ChronoUnit.SECONDS);
-				sendMessage(inbound.getTo(), from, "Please wait "+seconds+" seconds before trying again.");
+				sendMessage(inbound, "Please wait "+seconds+" seconds before trying again.");
 				return false;
 			}
 		}
@@ -105,9 +127,7 @@ public final class ApplicationController {
 		);
 		pendingRegistrationTimestamps.put(from, Instant.now());
 		pendingRegistrationRequests.put(request.getRequestId(), from);
-		sendMessage(inbound.getTo(), from,
-				"Please verify your number using mobile data: "+request.getCheckUrl()
-		);
+		sendMessage(inbound, "Please verify your number using mobile data: "+request.getCheckUrl());
 		logger.info("Verification sent: "+request.getRequestId());
 		return false;
 	}
@@ -188,9 +208,7 @@ public final class ApplicationController {
 					logger.warning(parsedOutput);
 				}
 
-				sendMessage(inbound.getTo(), inbound.getFrom(), parsedOutput.isBlank() ?
-						"Exit value " + process.exitValue() : parsedOutput
-				);
+				sendMessage(inbound, parsedOutput.isBlank() ? "Exit value " + process.exitValue() : parsedOutput);
 			}
 			else {
 				logger.warning("No command received.");
