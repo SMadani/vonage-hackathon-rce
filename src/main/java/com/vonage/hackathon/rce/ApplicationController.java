@@ -119,7 +119,7 @@ public final class ApplicationController {
 			}
 		}
 		else {
-			logger.info("Unknown number '" + from + "'. Beginning registration...");
+			logger.info("Unverified number '" + from + "'. Beginning registration...");
 		}
 
 		try {
