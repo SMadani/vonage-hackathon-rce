@@ -1,7 +1,9 @@
 # Vonage Hackathon Remote Code Execution Demo
 
+![Java](https://img.shields.io/badge/java-21%2B-red)
 [![Build Status](https://github.com/Vonage-Community/sample-serversdk-java-springboot/actions/workflows/build.yml/badge.svg)](https://github.com/SMadani/vonage-hackathon-rce/actions/workflows/build.yml")
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![SLOC](https://sloc.xyz/github/SMadani/vonage-hackathon-rce/)
 
 This repo demonstrates how you can use the [Messages API](https://developer.vonage.com/en/messages/technical-details)
 to execute shell commands on your server.
