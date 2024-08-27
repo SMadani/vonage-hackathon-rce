@@ -22,10 +22,12 @@ public final class ApplicationController {
 	private final Logger logger = Logger.getLogger("controller");
 	private static final String COMPLETE_REGISTRATION_ENDPOINT = "/register/complete";
 
-	private final Map<UUID, String> pendingRegistrationRequests = new LinkedHashMap<>(2);
+	private final int INITIAL_SIZE = 2;
+	private final Set<String> blockedNumbers = new LinkedHashSet<>(INITIAL_SIZE);
+	private final Map<UUID, String> pendingRegistrationRequests = new LinkedHashMap<>(INITIAL_SIZE);
 	private final Map<String, Instant>
-			pendingRegistrationTimestamps = new LinkedHashMap<>(2),
-			registeredNumbers = new LinkedHashMap<>(2);
+			pendingRegistrationTimestamps = new LinkedHashMap<>(INITIAL_SIZE),
+			registeredNumbers = new LinkedHashMap<>(INITIAL_SIZE);
 
 	@Autowired
 	private ApplicationConfiguration configuration;
@@ -85,6 +87,17 @@ public final class ApplicationController {
 
 	private synchronized boolean checkRegistration(InboundMessage inbound) {
 		var from = inbound.getFrom();
+		if (!configuration.permittedNumbers.contains(from)) {
+			if (!blockedNumbers.contains(from)) {
+				logger.info("Number '"+from+"' is not on the list. Rejecting...");
+				sendMessage(inbound, "You are not authorized to use this service.");
+				blockedNumbers.add(from);
+			}
+			return false;
+		}
+		else if (blockedNumbers.remove(from)) {
+			logger.info("Number '"+from+"' is now authorized.");
+		}
 		if (registeredNumbers.containsKey(from)) {
 			logger.info("Number '"+from+"' is verified.");
 			return true;

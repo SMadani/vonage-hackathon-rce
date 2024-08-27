@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @ConfigurationProperties(prefix = "vonage")
@@ -23,6 +24,7 @@ public class ApplicationConfiguration { ;
 	final VonageClient vonageClient;
 	final URI hostUrl;
 	final String brand = "Hackathon";
+	final Set<String> permittedNumbers;
 	int port;
 
 	@Bean
@@ -110,5 +112,8 @@ public class ApplicationConfiguration { ;
 		}
 
 		vonageClient = clientBuilder.build();
+		permittedNumbers = Set.of(getEnv("TO_NUMBER").orElseThrow(
+				() -> new IllegalStateException("TO_NUMBER not set."))
+		);
 	}
 }
