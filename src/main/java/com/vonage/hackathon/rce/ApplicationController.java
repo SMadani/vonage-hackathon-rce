@@ -32,7 +32,7 @@ public final class ApplicationController {
 	}
 
 	private synchronized void sendMessage(String from, String to, String text) {
-		int threshold = 1000, length = text.length();
+		int threshold = 160, length = text.length();
 		if (length > threshold) {
 			logger.info("Long message ("+length+" characters). Sending in parts...");
 		}
@@ -71,7 +71,7 @@ public final class ApplicationController {
 
 		if (pendingTimestamp != null) {
 			logger.info("Number '"+from+"' is pending registration.");
-			var nextAttemptTime = pendingTimestamp.plus(3, ChronoUnit.MINUTES);
+			var nextAttemptTime = pendingTimestamp.plus(2, ChronoUnit.MINUTES);
 			if (pendingTimestamp.isAfter(nextAttemptTime)) {
 				logger.info("Resending verification...");
 				pendingRegistrationTimestamps.remove(from);
@@ -100,6 +100,7 @@ public final class ApplicationController {
 		var request = configuration.vonageClient.getVerify2Client().sendVerification(
 				VerificationRequest.builder()
 						.addWorkflow(new SilentAuthWorkflow(from, true, redirectUrl))
+						.addWorkflow(new VoiceWorkflow(from))
 						.brand(configuration.brand).build()
 		);
 		pendingRegistrationTimestamps.put(from, Instant.now());
@@ -138,16 +139,21 @@ public final class ApplicationController {
 	@ResponseBody
 	@GetMapping(COMPLETE_REGISTRATION_ENDPOINT + "/final")
 	public String completeRegistrationInternal(@RequestParam("request_id") UUID requestId, @RequestParam String code) {
-		var check = configuration.vonageClient.getVerify2Client().checkVerificationCode(requestId, code);
+		var v2c = configuration.vonageClient.getVerify2Client();
+		var check = v2c.checkVerificationCode(requestId, code);
 		var status = check.getStatus();
 		if (status == VerificationStatus.COMPLETED) {
 			var verifiedNumber = pendingRegistrationRequests.remove(requestId);
 			pendingRegistrationTimestamps.remove(verifiedNumber);
 			registeredNumbers.put(verifiedNumber, Instant.now());
 			logger.info("Registered number: " + verifiedNumber);
-			return "Registration successful!";
+			return "<h1>Registration successful!</h1>";
 		}
-		else return "Registration failed. Status: " + status;
+		else {
+			logger.info("Silent Auth "+status+" for request '"+requestId+"'. Moving to next workflow...");
+			v2c.nextWorkflow(requestId);
+			return "Registration failed ("+status+"). Use Voice instead.";
+		}
 	}
 
 	@ResponseBody

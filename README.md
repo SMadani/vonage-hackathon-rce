@@ -7,7 +7,7 @@ This repo demonstrates how you can use the Messages API to execute shell command
 It is built using the [Vonage Java Server SDK](https://github.com/Vonage/vonage-java-sdk) and Spring Boot 3.
 
 ## Pre-requisites
-You will need Java Development Kit 21 or later to run this demo.
+You will need Java Development Kit 17 or later to run this demo.
 Installation instructions can be found [here for Temurin JDKs](https://adoptium.net/en-GB/installation/) or
 [here for Oracle JDK 21](https://docs.oracle.com/en/java/javase/21/install/overview-jdk-installation.html).
 
