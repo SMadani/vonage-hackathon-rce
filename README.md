@@ -12,6 +12,32 @@ allowing them to run commands. Only pre-approved numbers can sign up to use the 
 
 It is built using the [Vonage Java Server SDK](https://github.com/Vonage/vonage-java-sdk) and Spring Boot 3.
 
+## Workflow
+Here's the application logic in a nutshell:
+
+1. Create Vonage account and application, downloading the private key to the server.
+2. Configure the server environment to be able to accept requests.
+   - Start ngrok or tunnelling service / alternatively enable DMZ (basically ensure computer is accessible to internet) on a chosen port.
+   - Set environment variables required for the application.
+   - Install Java 21 and Maven if not already present.
+3. Start the application (`mvn spring-boot:run`).
+    - Application updates Vonage Application's webhook URLs automatically using Application API.
+    - The sender number is chosen from the application. If one is not assigned, an appropriate one with SMS capabilities is searched for and purchased and linked to the application, unless an existing vacant number exists in the account, in which case that will be used instead.
+4. Authenticate the user:
+   - Server sends message to number configured in 3b to notify that it's ready.
+   - User replies with anything when they are ready to begin the process.
+   - Server does a SIM Swap check if available. If this is not available due to network / application restrictions the result is skipped. If the SIM Swap is available and comes back true, it is flagged and number is refused.
+   - The server initiates Silent Authentication by sending a check URL to the user.
+   - The user follows the link on mobile data to verify the number.
+   - If this is successful, the number is now allowed to use the application
+   - If the auth is unsuccessful, it moves to a backup workflow where the user is voice called instead with a PIN. This then needs to be texted to the application to authenticate.
+   - If the user sends another text before auth is complete, the server informs them of the remaining timeout before another auth attempt can be initiated.
+   - If an unknown number attempts to authenticate, it is blocklisted and no further replies will be sent after informing them they are unauthorised.
+5. Process inbound messages
+   - User sends a command they want to run on the system to the registered application's number via SMS, WhatsApp, Viber or Messenger.
+   - If user's number is authenticated, this command is executed in a restricted shell.
+   - The output of the command is sent back to the user over the same channel they used to send the message.
+
 ## Pre-requisites
 You will need Java Development Kit 21 or later to run this demo.
 Installation instructions can be found [here for Temurin JDKs](https://adoptium.net/en-GB/installation/) or
