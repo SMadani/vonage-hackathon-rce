@@ -38,7 +38,7 @@ public class ApplicationConfiguration {
 	@Bean
 	public WebServerFactoryCustomizer<ConfigurableWebServerFactory> webServerFactoryCustomizer() {
 		return factory -> {
-
+			factory.setPort(port);
 			try {
 				factory.setAddress(InetAddress.getByAddress(new byte[]{0,0,0,0}));
 			}
@@ -50,7 +50,7 @@ public class ApplicationConfiguration {
 
 	record VonageCredentials(String apiKey, String apiSecret, String applicationId, String privateKey) {}
 
-	record ApplicationParameters(URI serverUrl, int port, String[] permittedNumbers) {}
+	record ApplicationParameters(URI serverUrl, Integer port, String[] permittedNumbers) {}
 
 	private static Optional<String> getEnv(String env) {
 		return Optional.ofNullable(System.getenv(env));
@@ -73,20 +73,19 @@ public class ApplicationConfiguration {
 	}
 
 	@ConstructorBinding
-    ApplicationConfiguration(VonageCredentials credentials, ApplicationParameters parameters) {;
-        this.port = parameters != null && parameters.port() > 80 ?
+    ApplicationConfiguration(VonageCredentials credentials, ApplicationParameters parameters) {
+        this.port = parameters != null && parameters.port() != null && parameters.port() > 80 ?
 				parameters.port() : getEnv("VCR_PORT").map(Integer::parseInt).orElse(8080);
 
+		var serverUrlEnvName = "VONAGE_HACKATHON_SERVER_URL";
         serverUrl = parameters != null && parameters.serverUrl() != null ? parameters.serverUrl() :
-				URI.create(getEnv("VONAGE_HACKATHON_SERVER_URL").map(
-						self -> port > 80 ? self + ":" + port : self
-					).orElseThrow(() -> new IllegalStateException("VONAGE_HACKATHON_SERVER_URL not set."))
-				);
-
-        permittedNumbers = parameters != null && parameters.permittedNumbers() != null ?
-				Set.of(parameters.permittedNumbers()) : Set.of(getEnv("TO_NUMBER").orElseThrow(
-						() -> new IllegalStateException("TO_NUMBER not set.")
+				URI.create(getEnv(serverUrlEnvName).orElseThrow(
+						() -> new IllegalStateException(serverUrlEnvName+" not set.")
 				));
+
+        permittedNumbers = parameters != null && parameters.permittedNumbers() != null &&
+				parameters.permittedNumbers.length > 0 ? Set.of(parameters.permittedNumbers()) :
+				Set.of(getEnv("TO_NUMBER").orElseThrow(() -> new IllegalStateException("TO_NUMBER not set.")));
 
 		var clientBuilder = VonageClient.builder();
 		var apiKey = getEnvWithAlt("VONAGE_API_KEY", "VCR_API_ACCOUNT_ID");

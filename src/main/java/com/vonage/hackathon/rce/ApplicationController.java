@@ -24,6 +24,7 @@ public final class ApplicationController {
 
 	private final int INITIAL_SIZE = 2;
 	private final Set<String> blockedNumbers = new LinkedHashSet<>(INITIAL_SIZE);
+	private final Set<UUID> nextWorkflowRequests = new LinkedHashSet<>(INITIAL_SIZE);
 	private final Map<UUID, String> pendingRegistrationRequests = new LinkedHashMap<>(INITIAL_SIZE);
 	private final Map<String, Instant>
 			pendingRegistrationTimestamps = new LinkedHashMap<>(INITIAL_SIZE),
@@ -177,7 +178,7 @@ public final class ApplicationController {
 			@RequestParam(value = "error_description", required = false) String errorText
 	) {
 		var v2c = configuration.vonageClient.getVerify2Client();
-		String reason = null;
+		String reason;
 		if (code != null) {
 			var check = v2c.checkVerificationCode(requestId, code);
 			var status = check.getStatus();
