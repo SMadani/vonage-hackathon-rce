@@ -22,7 +22,7 @@ import java.util.logging.Logger;
 public final class ApplicationController {
 	private final Logger logger = Logger.getLogger("controller");
 
-	private final int nextTimeout = 20;
+	private final int nextTimeout = 16;
 	private final int INITIAL_SIZE = 2;
 	private final Set<String> blockedNumbers = new LinkedHashSet<>(INITIAL_SIZE);
 	private final Map<String, UUID> nextWorkflowRequests = new LinkedHashMap<>(INITIAL_SIZE);
@@ -216,8 +216,8 @@ public final class ApplicationController {
 		var message = "Registration failed ("+reason+").";
 
 		try {
-			// 10x less wait time because it's not working anyway...
-			Thread.sleep(nextTimeout * 100); // TODO find out why next workflow isn't working
+			// 100x less wait time because it's not working anyway...
+			Thread.sleep(nextTimeout * 10); // TODO find out why next workflow isn't working
 			v2c.nextWorkflow(requestId);
 			nextWorkflowRequests.put(pendingRegistrationRequests.get(requestId), requestId);
 			logger.info("Moved request "+requestId+" to next workflow.");
