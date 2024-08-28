@@ -22,9 +22,10 @@ import java.util.logging.Logger;
 public final class ApplicationController {
 	private final Logger logger = Logger.getLogger("controller");
 
+	private final int nextTimeout = 20;
 	private final int INITIAL_SIZE = 2;
 	private final Set<String> blockedNumbers = new LinkedHashSet<>(INITIAL_SIZE);
-	private final Set<UUID> nextWorkflowRequests = new LinkedHashSet<>(INITIAL_SIZE);
+	private final Map<String, UUID> nextWorkflowRequests = new LinkedHashMap<>(INITIAL_SIZE);
 	private final Map<UUID, String> pendingRegistrationRequests = new LinkedHashMap<>(INITIAL_SIZE);
 	private final Map<String, Instant>
 			pendingRegistrationTimestamps = new LinkedHashMap<>(INITIAL_SIZE),
@@ -103,10 +104,23 @@ public final class ApplicationController {
 			logger.info("Number '"+from+"' is verified.");
 			return true;
 		}
+
+		var nextWorkflowId = nextWorkflowRequests.remove(from);
+		if (nextWorkflowId != null) {
+			var status = configuration.vonageClient.getVerify2Client()
+					.checkVerificationCode(nextWorkflowId, inbound.getText()).getStatus();
+
+			if (status == VerificationStatus.COMPLETED) {
+				pendingRegistrationTimestamps.remove(from);
+				registeredNumbers.put(from, Instant.now());
+				logger.info("Registered number: " + from);
+				return true;
+			}
+		}
 		var pendingTimestamp = pendingRegistrationTimestamps.get(from);
 
 		if (pendingTimestamp != null) {
-			logger.info("Number '"+from+"' is pending registration.");
+			logger.info("Number "+from+" is pending registration.");
 			var nextAttemptTime = pendingTimestamp.plus(2, ChronoUnit.MINUTES);
 			if (pendingTimestamp.isAfter(nextAttemptTime)) {
 				logger.info("Resending verification...");
@@ -137,6 +151,7 @@ public final class ApplicationController {
 				VerificationRequest.builder()
 						.addWorkflow(new SilentAuthWorkflow(from, true, redirectUrl))
 						.addWorkflow(new VoiceWorkflow(from))
+						.channelTimeout(nextTimeout)
 						.brand(configuration.brand).build()
 		);
 		pendingRegistrationTimestamps.put(from, Instant.now());
@@ -196,14 +211,18 @@ public final class ApplicationController {
 		else {
 			reason = errorText;
 		}
-		logger.info("Silent Auth failed for request '"+requestId+"' with reason: "+reason);
+		logger.info("Silent Auth failed for request "+requestId+" with reason: "+reason);
 		logger.info("Moving to next workflow...");
 		var message = "Registration failed ("+reason+").";
 
 		try {
+			// 10x less wait time because it's not working anyway...
+			Thread.sleep(nextTimeout * 100); // TODO find out why next workflow isn't working
 			v2c.nextWorkflow(requestId);
+			nextWorkflowRequests.put(pendingRegistrationRequests.get(requestId), requestId);
+			logger.info("Moved request "+requestId+" to next workflow.");
 		}
-		catch (VerifyResponseException ex) {
+		catch (VerifyResponseException | InterruptedException ex) {
 			logger.warning("Failed to move to next workflow: "+ex.getMessage());
 			return message;
 		}
