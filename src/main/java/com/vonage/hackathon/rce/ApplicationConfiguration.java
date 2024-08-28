@@ -1,11 +1,6 @@
 package com.vonage.hackathon.rce;
 
 import com.vonage.client.VonageClient;
-import com.vonage.client.application.Application;
-import com.vonage.client.application.capabilities.Messages;
-import com.vonage.client.application.capabilities.Verify;
-import com.vonage.client.common.HttpMethod;
-import com.vonage.client.common.Webhook;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.web.server.ConfigurableWebServerFactory;
@@ -14,6 +9,7 @@ import org.springframework.context.annotation.Bean;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -33,16 +29,16 @@ public class ApplicationConfiguration {
 			COMPLETE_REGISTRATION_ENDPOINT = "/register/complete";
 
 	final VonageClient vonageClient;
-	final URI hostUrl;
+	final URI serverUrl;
 	final UUID applicationId;
 	final String brand = "Hackathon";
 	final Set<String> permittedNumbers;
-	int port;
+	final int port;
 
 	@Bean
 	public WebServerFactoryCustomizer<ConfigurableWebServerFactory> webServerFactoryCustomizer() {
 		return factory -> {
-			getEnv("VCR_PORT").map(Integer::parseInt).ifPresent(factory::setPort);
+
 			try {
 				factory.setAddress(InetAddress.getByAddress(new byte[]{0,0,0,0}));
 			}
@@ -53,6 +49,8 @@ public class ApplicationConfiguration {
 	}
 
 	record VonageCredentials(String apiKey, String apiSecret, String applicationId, String privateKey) {}
+
+	record ApplicationParameters(URI serverUrl, int port, String[] permittedNumbers) {}
 
 	private static Optional<String> getEnv(String env) {
 		return Optional.ofNullable(System.getenv(env));
@@ -75,18 +73,26 @@ public class ApplicationConfiguration {
 	}
 
 	@ConstructorBinding
-    ApplicationConfiguration(VonageCredentials credentials) {
+    ApplicationConfiguration(VonageCredentials credentials, ApplicationParameters parameters) {;
+        this.port = parameters != null && parameters.port() > 80 ?
+				parameters.port() : getEnv("VCR_PORT").map(Integer::parseInt).orElse(8080);
+
+        serverUrl = parameters != null && parameters.serverUrl() != null ? parameters.serverUrl() :
+				URI.create(getEnv("VONAGE_HACKATHON_SERVER_URL").map(
+						self -> port > 80 ? self + ":" + port : self
+					).orElseThrow(() -> new IllegalStateException("VONAGE_HACKATHON_SERVER_URL not set."))
+				);
+
+        permittedNumbers = parameters != null && parameters.permittedNumbers() != null ?
+				Set.of(parameters.permittedNumbers()) : Set.of(getEnv("TO_NUMBER").orElseThrow(
+						() -> new IllegalStateException("TO_NUMBER not set.")
+				));
+
 		var clientBuilder = VonageClient.builder();
 		var apiKey = getEnvWithAlt("VONAGE_API_KEY", "VCR_API_ACCOUNT_ID");
 		var apiSecret = getEnvWithAlt("VONAGE_API_SECRET", "VCR_API_ACCOUNT_SECRET");
 		var applicationId = getEnvWithAlt("VONAGE_APPLICATION_ID", "VCR_API_APPLICATION_ID");
 		var privateKey = getEnvWithAlt("VONAGE_PRIVATE_KEY_PATH", "VCR_PRIVATE_KEY");
-		hostUrl = URI.create(getEnv("VONAGE_HACKATHON_SERVER_URL").map(
-				self -> port > 80 ? self + ":" + port : self
-		).orElseThrow(() -> new IllegalStateException("VONAGE_HACKATHON_SERVER_URL not set.")));
-		permittedNumbers = Set.of(getEnv("TO_NUMBER").orElseThrow(
-				() -> new IllegalStateException("TO_NUMBER not set."))
-		);
 
 		if (credentials != null) {
 			if (credentials.apiKey != null && !credentials.apiKey.isEmpty()) {

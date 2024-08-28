@@ -1,6 +1,5 @@
 package com.vonage.hackathon.rce;
 
-import com.vonage.client.application.capabilities.Voice;
 import static com.vonage.hackathon.rce.ApplicationConfiguration.*;
 import com.vonage.client.auth.camara.NetworkAuthResponseException;
 import com.vonage.client.messages.*;
@@ -132,7 +131,7 @@ public final class ApplicationController {
 			logger.warning(ex.getMessage());
 		}
 
-		var redirectUrl = configuration.hostUrl.resolve(COMPLETE_REGISTRATION_ENDPOINT).toString();
+		var redirectUrl = configuration.serverUrl.resolve(COMPLETE_REGISTRATION_ENDPOINT).toString();
 		var request = configuration.vonageClient.getVerify2Client().sendVerification(
 				VerificationRequest.builder()
 						.addWorkflow(new SilentAuthWorkflow(from, true, redirectUrl))

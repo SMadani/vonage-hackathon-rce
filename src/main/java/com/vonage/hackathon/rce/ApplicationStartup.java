@@ -1,6 +1,5 @@
 package com.vonage.hackathon.rce;
 
-import com.vonage.client.VonageClient;
 import com.vonage.client.application.ApplicationResponseException;
 import static com.vonage.hackathon.rce.ApplicationConfiguration.*;
 import com.vonage.client.application.Application;
@@ -22,7 +21,7 @@ public class ApplicationStartup {
 
     private Webhook buildWebhook(String endpoint) {
         return Webhook.builder()
-                .address(configuration.hostUrl.resolve(endpoint).toString())
+                .address(configuration.serverUrl.resolve(endpoint).toString())
                 .method(HttpMethod.POST).build();
     }
 
