@@ -6,7 +6,7 @@
 
     <groupId>com.vonage</groupId>
     <artifactId>hackathon-messages-rce</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.2-SNAPSHOT</version>
 
     <name>RCE via Vonage Java SDK</name>
     <description>Hackathon project showcasing Remote Code Execution over Messages API.</description>
@@ -44,7 +44,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.2</version>
+        <version>3.4.2</version>
     </parent>
 
     <properties>
@@ -56,7 +56,7 @@
         <dependency>
             <groupId>com.vonage</groupId>
             <artifactId>server-sdk</artifactId>
-            <version>8.10.0</version>
+            <version>8.16.2</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

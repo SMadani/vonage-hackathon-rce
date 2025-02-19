@@ -5,21 +5,14 @@ on:
       - main
   pull_request:
 
-permissions:
-  actions: write
-  checks: write
-  contents: read
-  deployments: none
-  issues: none
-  discussions: none
-  packages: none
-  pages: none
-  pull-requests: write
-  security-events: write
-  statuses: write
+permissions: read-all
 
 jobs:
   build:
+    permissions:
+      contents: read
+      checks: write
+      statuses: write
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

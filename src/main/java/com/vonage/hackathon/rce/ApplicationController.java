@@ -1,5 +1,6 @@
 package com.vonage.hackathon.rce;
 
+import com.vonage.client.messages.rcs.RcsTextRequest;
 import static com.vonage.hackathon.rce.ApplicationConfiguration.*;
 import com.vonage.client.auth.camara.NetworkAuthResponseException;
 import com.vonage.client.messages.*;
@@ -49,28 +50,23 @@ public final class ApplicationController {
 		}
 
 		var client = configuration.vonageClient.getMessagesClient().useSandboxEndpoint();
-		MessageRequest.Builder<?, ?> builder = (
+		MessageRequest.Builder<? extends TextMessageRequest, ?> builder = (
 			switch (inbound.getChannel()) {
 				case WHATSAPP -> WhatsappTextRequest.builder();
 				case VIBER -> ViberTextRequest.builder();
 				case MESSENGER -> MessengerTextRequest.builder();
+				case RCS -> RcsTextRequest.builder();
 				case SMS, MMS -> {
 					client.useRegularEndpoint();
 					yield SmsTextRequest.builder();
 				}
 			}
-		).from(inbound.getTo()).to(inbound.getFrom());
+		);
+		builder.from(inbound.getTo()).to(inbound.getFrom());
 
-		try {
-			var textMethod = builder.getClass().getMethod("text", String.class);
-			for (var part : parts) {
-				textMethod.invoke(builder, part);
-				logger.info("Message sent: " + client.sendMessage(builder.build()).getMessageUuid());
-			}
-		}
-		catch (ReflectiveOperationException ex) {
-			logger.warning("Could not send message: " + ex.getMessage());
-			throw new IllegalStateException(ex);
+		for (var part : parts) {
+			((TextMessageRequest.Builder<?>) builder).text(part);
+			logger.info("Message sent: " + client.sendMessage(builder.build()).getMessageUuid());
 		}
 	}
 
